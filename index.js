@@ -7,8 +7,12 @@
  *
  * 默认值取自控制台自己的 bin/cli.js（v1.2.1）：端口 9999、绑定 0.0.0.0、
  * 没有 --api-url 默认值。没有配置的项完全不传，让控制台用自己的默认值。
+ *
+ * 启动前先看端口：已在跑且应答就复用，绝不并排起第二个；被占但不应答时，
+ * 只在确认对方是本控制台的 node 进程后才清掉。两个控制台抢同一端口会双双卡死。
  */
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
+import { connect } from 'node:net'
 
 const PACKAGE = '@vectorize-io/hindsight-control-plane'
 const ROW_ID = 'dsh-hindsight-control-plane'
@@ -16,23 +20,24 @@ const DEFAULT_PORT = 9999
 const DEFAULT_VERSION = 'latest'
 const URL_PATH = '/dsh-hindsight-control-plane/url'
 const SETTINGS_PATH = '/dsh-hindsight-control-plane/settings'
+const PROBE_TIMEOUT_MS = 2000
+const PORT_WAIT_MS = 8000
 
 export const inject = ['webServer', 'configEditor']
 
 export function apply(ctx, config = {}) {
-  const state = { settings: normalize(config), dispose: undefined }
+  const state = { settings: normalize(config) }
 
-  const restart = () => {
-    state.dispose?.()
-    state.dispose = startConsole(state.settings)
-  }
-  restart()
-
-  ctx.effect(() => () => {
-    state.dispose?.()
-    state.dispose = undefined
-  })
-
+  // launch 是异步的：effect 接受 Promise<disposer>，卸载时会等它落定再清理。
+  ctx.effect(async () => {
+    try {
+      return await launch(state)
+    } catch (error) {
+      // 起不来也不该让插件挂掉：地址路由照常可用，页面会停在等待态。
+      console.error(`[hindsight-control-plane] 启动失败：${error?.message ?? error}`)
+      return () => {}
+    }
+  }, 'hindsight-control-plane: console')
   // 浏览器半边读不到宿主状态，所以挂载时来问这两条路由。挂载时现取，
   // 答案就与页面 HTML 是什么时候生成的无关。
   ctx.effect(() => ctx.webServer.register({
@@ -91,16 +96,16 @@ export function apply(ctx, config = {}) {
         return
       }
       state.settings = next
-      // Loader 是异步重新协调这一行的；这里同时重启一次，保证即使当前闭包没有被
-      // 重新执行，控制台也会按新参数起来。
-      restart()
+      // 不在这里重启：configEditor.edit() 会让 Loader 重新协调这一行，
+      // apply() 会带着新 config 再执行一次并起新的控制台。
+      // 在这里也起一次就会有两个进程抢同一个端口，抢输的那个会卡死。
       sendJson(response, 200, { ok: true, settings: next, url: addressOf(next), command: commandOf(next) })
     },
   }))
 }
 
 /** 找到本插件自己的 Loader 行。
- *  patch id 就是包名，但 entry.id 带 include: 前缀，所以三个字段都看一遍。 */
+ *  patch id 就是包名，但 entry.id 带 include: 前缀，所以几个字段都看一遍。 */
 function findEntry(ctx) {
   let rows
   try {
@@ -119,10 +124,38 @@ function findEntry(ctx) {
   return hit?.entry
 }
 
+/** 端口已经是我们的控制台就复用，是正在退出的旧实例就等它走，都没有才启动。 */
+async function launch(state) {
+  const port = portOf(state.settings.port)
+
+  if (await portOpen(port)) {
+    if (await consoleAnswers(port)) {
+      console.log(`[hindsight-control-plane] 端口 ${port} 上已有控制台在跑，直接复用`)
+      return () => {}
+    }
+    // 端口被占却不应答：可能是上一个实例还在退出。先等它自己走。
+    if (await waitPortFree(port)) {
+      console.log(`[hindsight-control-plane] 端口 ${port} 已空出，正常启动`)
+      return startConsole(state.settings)
+    }
+    // 等不到就只清掉确实是 node 的进程，避免误杀用户自己占着这个端口的程序。
+    const pid = process.platform === 'win32' ? await listeningPid(port) : 0
+    const image = pid ? await processImage(pid) : ''
+    if (pid && /^node(\.exe)?$/i.test(image)) {
+      console.warn(`[hindsight-control-plane] 端口 ${port} 被卡住的旧进程 ${pid} 占用，清掉后重启`)
+      await killTree(pid)
+      if (await waitPortFree(port)) return startConsole(state.settings)
+    }
+    console.error(`[hindsight-control-plane] 端口 ${port} 被${pid ? `进程 ${pid}（${image || '未知'}）` : '其他程序'}占用且不应答，这次不启动，避免再卡一个`)
+    return () => {}
+  }
+
+  return startConsole(state.settings)
+}
+
 /** 拉起控制台；返回的 disposer 负责停掉它。 */
 function startConsole(settings) {
   const args = argvFor(settings)
-
   const child = spawnNpx(args)
   let stopped = false
   let tail = ''
@@ -134,7 +167,7 @@ function startConsole(settings) {
   })
   child.on('exit', code => {
     if (stopped || !code) return
-    console.error(`[hindsight-control-plane] console exited with ${code}\n${tail}`)
+    console.error(`[hindsight-control-plane] 控制台退出，码 ${code}\n${tail}`)
   })
 
   return () => {
@@ -183,7 +216,83 @@ function stop(child) {
   }
   // ponytail: 直接整棵进程树杀掉，不做优雅退出的分层处理 —— npx、node、Next 服务
   // 都得走，否则端口被占着，下次起不来。
-  spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore', windowsHide: true })
+  killTree(child.pid)
+}
+/** 端口能不能连上；连上说明有东西在听。 */
+function portOpen(port, timeoutMs = 600) {
+  return new Promise(resolve => {
+    const socket = connect({ port, host: '127.0.0.1' })
+    const finish = value => {
+      socket.destroy()
+      resolve(value)
+    }
+    socket.setTimeout(timeoutMs)
+    socket.once('connect', () => finish(true))
+    socket.once('timeout', () => finish(false))
+    socket.once('error', () => finish(false))
+  })
+}
+
+/** 控制台能不能应答；接受连接却永远不回，就是卡死。 */
+async function consoleAnswers(port) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS)
+  try {
+    await fetch(`http://127.0.0.1:${port}/`, { signal: controller.signal, redirect: 'manual' })
+    return true
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** 等到端口空出来；超时返回 false。 */
+async function waitPortFree(port) {
+  const deadline = Date.now() + PORT_WAIT_MS
+  while (Date.now() < deadline) {
+    if (!await portOpen(port, 300)) return true
+    await new Promise(resolve => setTimeout(resolve, 200))
+  }
+  return !await portOpen(port, 300)
+}
+
+/** 监听某个端口的进程号，取不到返回 0。 */
+async function listeningPid(port) {
+  const text = await run('netstat', ['-ano'])
+  for (const line of text.split(/\r?\n/)) {
+    if (!/LISTENING\s+\d+\s*$/.test(line)) continue
+    const local = line.trim().split(/\s+/)[1] ?? ''
+    if (local.endsWith(`:${port}`)) {
+      const pid = Number(line.trim().match(/LISTENING\s+(\d+)/)?.[1])
+      if (Number.isInteger(pid) && pid > 0) return pid
+    }
+  }
+  return 0
+}
+
+/** 进程的可执行文件名，例如 node.exe；取不到返回空串。 */
+async function processImage(pid) {
+  const text = await run('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'])
+  return text.match(/^"([^"]+)"/)?.[1] ?? ''
+}
+
+function killTree(pid) {
+  return run('taskkill', ['/pid', String(pid), '/t', '/f'])
+}
+
+/** 跑一条命令取标准输出；失败就当没输出，调用方按“取不到”处理。
+ *  execFile 在部分环境（沙箱、权限不足）会同步抛错，所以整段包在 try 里。 */
+function run(command, args) {
+  return new Promise(resolve => {
+    try {
+      execFile(command, args, { windowsHide: true, timeout: 5000 }, (error, stdout) => {
+        resolve(error ? '' : String(stdout))
+      })
+    } catch {
+      resolve('')
+    }
+  })
 }
 
 function normalize(raw) {
