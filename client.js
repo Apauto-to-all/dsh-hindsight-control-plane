@@ -8,6 +8,8 @@ window.__ModuleLoader__.load({
     const SETTINGS_PATH = '/dsh-hindsight-control-plane/settings'
     const CHANGED = 'dsh-hindsight-control-plane:changed'
 
+    const mono = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+
     const rowStyle = { height: '100%', flex: '1 1 auto', minHeight: 0, display: 'flex' }
     const frameStyle = { flex: '1 1 auto', minHeight: 0, width: '100%', border: 0, display: 'block' }
     const spinnerStyle = {
@@ -38,8 +40,22 @@ window.__ModuleLoader__.load({
       font: 'inherit',
       fontSize: 13,
     }
+    const headStyle = { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }
     const titleStyle = { fontSize: 13, color: 'var(--dsw-alias-label-primary)', fontWeight: 500 }
     const hintStyle = { margin: 0, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }
+    const flagStyle = { fontFamily: mono, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }
+    const commandStyle = {
+      margin: 0,
+      padding: '8px 10px',
+      border: '0.5px solid var(--dsw-alias-border-l2)',
+      borderRadius: 8,
+      background: 'var(--dsw-alias-bg-layer-1)',
+      color: 'var(--dsw-alias-label-primary)',
+      fontFamily: mono,
+      fontSize: 12,
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'break-all',
+    }
     const buttonStyle = {
       height: 32,
       padding: '0 14px',
@@ -52,27 +68,32 @@ window.__ModuleLoader__.load({
       cursor: 'pointer',
     }
 
+    // 每项都标出它落到命令行上的位置，避免“这一格到底改了什么”的误解。
     const FIELDS = [
       {
         key: 'apiUrl',
-        label: '记忆服务地址',
-        hint: '控制台读取的 Hindsight 接口，例如 http://127.0.0.1:9077。留空则用控制台自己的默认值。',
+        label: '记忆服务地址（Memory service URL）',
+        flag: '--api-url',
+        hint: '控制台读取的 Hindsight 接口，例如 http://127.0.0.1:9077；留空则用控制台默认值（empty = console default）',
       },
       {
         key: 'port',
-        label: '控制台端口',
-        hint: '控制台监听的端口。留空则用默认的 9999。',
+        label: '控制台端口（Console port）',
+        flag: '--port',
+        hint: '控制台监听端口；留空则用 9999（empty = 9999）',
         inputMode: 'numeric',
       },
       {
         key: 'hostname',
-        label: '绑定地址',
-        hint: '控制台绑定的网卡地址。留空则用默认的 0.0.0.0。',
+        label: '绑定地址（Bind address）',
+        flag: '--hostname',
+        hint: '控制台绑定的网卡地址；留空则用 0.0.0.0（empty = 0.0.0.0）',
       },
       {
         key: 'version',
-        label: '包版本',
-        hint: '@vectorize-io/hindsight-control-plane 的版本或范围，例如 latest、1.2.1。',
+        label: '包版本（Package version）',
+        flag: '',
+        hint: '安装的版本或范围，例如 latest、1.2.1；留空则用 latest（empty = latest）',
       },
     ]
 
@@ -93,7 +114,7 @@ window.__ModuleLoader__.load({
     function Waiting() {
       return h('div', {
         role: 'status',
-        'aria-label': '正在启动 Hindsight 控制台',
+        'aria-label': '正在启动 Hindsight 控制台（starting the console）',
         style: { flex: '1 1 auto', display: 'grid', placeItems: 'center' },
       },
         h('style', null, '@keyframes hcp-spin{to{transform:rotate(360deg)}}'),
@@ -150,10 +171,10 @@ window.__ModuleLoader__.load({
       }, [url, ready])
 
       if (url === '') {
-        return h('div', { style: { padding: 16 } }, '宿主没有提供控制台地址。')
+        return h('div', { style: { padding: 16 } }, '宿主没有提供控制台地址（the Host published no address）。')
       }
       return h('div', { style: rowStyle }, ready && url
-        ? h('iframe', { src: url, title: 'Hindsight 控制台', style: frameStyle })
+        ? h('iframe', { src: url, title: 'Hindsight 控制台（Hindsight console）', style: frameStyle })
         : h(Waiting))
     }
 
@@ -175,12 +196,12 @@ window.__ModuleLoader__.load({
               setStatus('ready')
             } else {
               setStatus('error')
-              setError((body && body.error) || '读不到设置。')
+              setError((body && body.error) || '读不到设置（cannot read settings）。')
             }
           }, () => {
             if (!live) return
             setStatus('error')
-            setError('读不到设置。')
+            setError('读不到设置（cannot read settings）。')
           })
         return () => {
           live = false
@@ -188,7 +209,7 @@ window.__ModuleLoader__.load({
       }, [])
 
       if (props && props.view === 'summary') {
-        return h('span', { style: hintStyle }, saved && saved.url ? saved.url : 'Hindsight 控制台')
+        return h('span', { style: hintStyle }, saved && saved.url ? saved.url : 'Hindsight 控制台（Hindsight console）')
       }
 
       const change = key => event => {
@@ -207,7 +228,7 @@ window.__ModuleLoader__.load({
           .then(({ ok, body }) => {
             if (!ok || !body || !body.ok) {
               setStatus('error')
-              setError((body && body.error) || '保存失败。')
+              setError((body && body.error) || '保存失败（save failed）。')
               return
             }
             setDraft(body.settings)
@@ -219,18 +240,20 @@ window.__ModuleLoader__.load({
 
       if (!draft) {
         return h('div', { style: cardStyle },
-          h('p', { style: hintStyle, role: 'status' }, status === 'error' ? error : '正在读取设置…'))
+          h('p', { style: hintStyle, role: 'status' }, status === 'error' ? error : '正在读取设置（loading settings）…'))
       }
 
       const note = status === 'error'
         ? error
         : status === 'saved'
-          ? `已保存 · 控制台正在重启到 ${saved.url}`
-          : saved && saved.url ? `运行中：${saved.url}` : ''
+          ? `已保存，控制台正在重启（saved, restarting）：${saved.url}`
+          : saved && saved.url ? `运行中（running）：${saved.url}` : ''
 
       return h('div', { style: cardStyle },
         FIELDS.map(field => h('div', { key: field.key, style: { display: 'grid', gap: 4 } },
-          h('label', { htmlFor: `hcp-${field.key}`, style: titleStyle }, field.label),
+          h('div', { style: headStyle },
+            h('label', { htmlFor: `hcp-${field.key}`, style: titleStyle }, field.label),
+            h('span', { style: flagStyle }, field.flag)),
           h('input', {
             id: `hcp-${field.key}`,
             value: draft[field.key] || '',
@@ -247,8 +270,12 @@ window.__ModuleLoader__.load({
             onClick: save,
             disabled: status === 'saving',
             style: { ...buttonStyle, opacity: status === 'saving' ? 0.6 : 1 },
-          }, status === 'saving' ? '保存中…' : '保存并重启'),
-          h('span', { role: 'status', style: hintStyle }, note)))
+          }, status === 'saving' ? '保存中…（saving）' : '保存并重启（Save and restart）'),
+          h('span', { role: 'status', style: hintStyle }, note)),
+        h('div', { style: { display: 'grid', gap: 4 } },
+          h('span', { style: titleStyle }, '实际命令（actual command）'),
+          h('code', { style: commandStyle }, saved && saved.command ? saved.command : ''),
+          h('p', { style: hintStyle }, '没配置的项不会出现在命令里（unset flags are omitted）。')))
     }
 
     return {

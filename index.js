@@ -53,7 +53,12 @@ export function apply(ctx, config = {}) {
     path: SETTINGS_PATH,
     handler: async (request, response) => {
       if (request.method === 'GET') {
-        sendJson(response, 200, { ok: true, settings: state.settings, url: addressOf(state.settings) })
+        sendJson(response, 200, {
+          ok: true,
+          settings: state.settings,
+          url: addressOf(state.settings),
+          command: commandOf(state.settings),
+        })
         return
       }
       if (request.method !== 'POST') {
@@ -89,24 +94,34 @@ export function apply(ctx, config = {}) {
       // Loader 是异步重新协调这一行的；这里同时重启一次，保证即使当前闭包没有被
       // 重新执行，控制台也会按新参数起来。
       restart()
-      sendJson(response, 200, { ok: true, settings: next, url: addressOf(next) })
+      sendJson(response, 200, { ok: true, settings: next, url: addressOf(next), command: commandOf(next) })
     },
   }))
 }
 
-/** 找到本插件自己的 Loader 行：先按 patch id，再按包名。 */
+/** 找到本插件自己的 Loader 行。
+ *  patch id 就是包名，但 entry.id 带 include: 前缀，所以三个字段都看一遍。 */
 function findEntry(ctx) {
-  const rows = ctx.configEditor.configuration()
-  const row = rows.find(item => item.entry?.id === ROW_ID) ?? rows.find(item => item.entry?.name === ROW_ID)
-  return row?.entry
+  let rows
+  try {
+    rows = ctx.configEditor.configuration()
+  } catch {
+    return undefined
+  }
+  const hit = rows.find(item => {
+    const entry = item?.entry
+    if (!entry) return false
+    return entry.patchId === ROW_ID
+      || entry.name === ROW_ID
+      || entry.id === ROW_ID
+      || (typeof entry.id === 'string' && entry.id.endsWith(`:${ROW_ID}`))
+  })
+  return hit?.entry
 }
 
 /** 拉起控制台；返回的 disposer 负责停掉它。 */
 function startConsole(settings) {
-  const args = ['-y', `${PACKAGE}@${versionOf(settings.version)}`]
-  if (settings.apiUrl) args.push('--api-url', settings.apiUrl)
-  if (settings.port) args.push('--port', String(portOf(settings.port)))
-  if (settings.hostname) args.push('--hostname', settings.hostname)
+  const args = argvFor(settings)
 
   const child = spawnNpx(args)
   let stopped = false
@@ -126,6 +141,20 @@ function startConsole(settings) {
     stopped = true
     stop(child)
   }
+}
+
+/** 命令行参数；spawn 和页面展示共用这一份，避免两处走样。 */
+function argvFor(settings) {
+  const args = ['-y', `${PACKAGE}@${versionOf(settings.version)}`]
+  if (settings.apiUrl) args.push('--api-url', settings.apiUrl)
+  if (settings.port) args.push('--port', String(portOf(settings.port)))
+  if (settings.hostname) args.push('--hostname', settings.hostname)
+  return args
+}
+
+/** 页面展示用的完整命令；没配置的项不会出现在里面。 */
+function commandOf(settings) {
+  return ['npx', ...argvFor(settings)].join(' ')
 }
 
 function spawnNpx(args) {
