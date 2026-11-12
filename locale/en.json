@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Hindsight Control Plane",
-    "description": "Embeds the Hindsight console in the main panel and starts it with npx."
+    "description": "Embeds the Hindsight console in the main panel, starts it with npx, and edits its launch settings on this page."
   }
 }

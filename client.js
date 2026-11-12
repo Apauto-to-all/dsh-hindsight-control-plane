@@ -3,7 +3,10 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react')
     const h = React.createElement
+
     const URL_PATH = '/dsh-hindsight-control-plane/url'
+    const SETTINGS_PATH = '/dsh-hindsight-control-plane/settings'
+    const CHANGED = 'dsh-hindsight-control-plane:changed'
 
     const rowStyle = { height: '100%', flex: '1 1 auto', minHeight: 0, display: 'flex' }
     const frameStyle = { flex: '1 1 auto', minHeight: 0, width: '100%', border: 0, display: 'block' }
@@ -16,6 +19,62 @@ window.__ModuleLoader__.load({
       opacity: 0.6,
       animation: 'hcp-spin 0.9s linear infinite',
     }
+    const cardStyle = {
+      display: 'grid',
+      gap: 14,
+      padding: '14px 16px',
+      border: '0.5px solid var(--dsw-alias-border-l2)',
+      borderRadius: 12,
+      background: 'var(--dsw-alias-bg-layer-2)',
+    }
+    const fieldStyle = {
+      width: '100%',
+      height: 32,
+      padding: '0 10px',
+      border: '0.5px solid var(--dsw-alias-border-l2)',
+      borderRadius: 8,
+      background: 'var(--dsw-alias-bg-layer-1)',
+      color: 'var(--dsw-alias-label-primary)',
+      font: 'inherit',
+      fontSize: 13,
+    }
+    const titleStyle = { fontSize: 13, color: 'var(--dsw-alias-label-primary)', fontWeight: 500 }
+    const hintStyle = { margin: 0, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }
+    const buttonStyle = {
+      height: 32,
+      padding: '0 14px',
+      border: 0,
+      borderRadius: 8,
+      background: 'var(--dsw-alias-state-business-primary)',
+      color: '#fff',
+      font: 'inherit',
+      fontSize: 13,
+      cursor: 'pointer',
+    }
+
+    const FIELDS = [
+      {
+        key: 'apiUrl',
+        label: '记忆服务地址',
+        hint: '控制台读取的 Hindsight 接口，例如 http://127.0.0.1:9077。留空则用控制台自己的默认值。',
+      },
+      {
+        key: 'port',
+        label: '控制台端口',
+        hint: '控制台监听的端口。留空则用默认的 9999。',
+        inputMode: 'numeric',
+      },
+      {
+        key: 'hostname',
+        label: '绑定地址',
+        hint: '控制台绑定的网卡地址。留空则用默认的 0.0.0.0。',
+      },
+      {
+        key: 'version',
+        label: '包版本',
+        hint: '@vectorize-io/hindsight-control-plane 的版本或范围，例如 latest、1.2.1。',
+      },
+    ]
 
     function Icon(props) {
       const size = typeof props.size === 'number' ? props.size : 20
@@ -34,7 +93,7 @@ window.__ModuleLoader__.load({
     function Waiting() {
       return h('div', {
         role: 'status',
-        'aria-label': 'Starting Hindsight Control Plane',
+        'aria-label': '正在启动 Hindsight 控制台',
         style: { flex: '1 1 auto', display: 'grid', placeItems: 'center' },
       },
         h('style', null, '@keyframes hcp-spin{to{transform:rotate(360deg)}}'),
@@ -42,12 +101,22 @@ window.__ModuleLoader__.load({
     }
 
     function Panel() {
-      // null = still asking the Host; '' = the Host answered without an address.
+      // null = 还在问宿主；'' = 宿主答复了但没有地址。
       const [url, setUrl] = React.useState(null)
       const [ready, setReady] = React.useState(false)
+      const [nonce, setNonce] = React.useState(0)
+
+      // 保存设置会重启控制台，面板要重新取一次地址。
+      React.useEffect(() => {
+        const reload = () => setNonce(value => value + 1)
+        window.addEventListener(CHANGED, reload)
+        return () => window.removeEventListener(CHANGED, reload)
+      }, [])
 
       React.useEffect(() => {
         let live = true
+        setUrl(null)
+        setReady(false)
         fetch(URL_PATH, { cache: 'no-store' })
           .then(res => (res.ok ? res.json() : null))
           .then(body => {
@@ -58,10 +127,10 @@ window.__ModuleLoader__.load({
         return () => {
           live = false
         }
-      }, [])
+      }, [nonce])
 
-      // A first npx run downloads the console, so the iframe stays unmounted until
-      // the address answers; an opaque no-cors probe rejects while nothing listens.
+      // 首次 npx 要下载控制台，所以在地址应答之前不挂 iframe；
+      // 没有服务在听时，no-cors 探测会直接失败。
       React.useEffect(() => {
         if (!url || ready) return
         let live = true
@@ -81,17 +150,111 @@ window.__ModuleLoader__.load({
       }, [url, ready])
 
       if (url === '') {
-        return h('div', { style: { padding: 16 } }, 'The control plane address is unavailable.')
+        return h('div', { style: { padding: 16 } }, '宿主没有提供控制台地址。')
       }
       return h('div', { style: rowStyle }, ready && url
-        ? h('iframe', { src: url, title: 'Hindsight Control Plane', style: frameStyle })
+        ? h('iframe', { src: url, title: 'Hindsight 控制台', style: frameStyle })
         : h(Waiting))
+    }
+
+    function ConfigCard(props) {
+      const [draft, setDraft] = React.useState(null)
+      const [saved, setSaved] = React.useState(null)
+      const [status, setStatus] = React.useState('loading')
+      const [error, setError] = React.useState('')
+
+      React.useEffect(() => {
+        let live = true
+        fetch(SETTINGS_PATH, { cache: 'no-store' })
+          .then(res => (res.ok ? res.json() : null))
+          .then(body => {
+            if (!live) return
+            if (body && body.ok) {
+              setDraft(body.settings)
+              setSaved(body)
+              setStatus('ready')
+            } else {
+              setStatus('error')
+              setError((body && body.error) || '读不到设置。')
+            }
+          }, () => {
+            if (!live) return
+            setStatus('error')
+            setError('读不到设置。')
+          })
+        return () => {
+          live = false
+        }
+      }, [])
+
+      if (props && props.view === 'summary') {
+        return h('span', { style: hintStyle }, saved && saved.url ? saved.url : 'Hindsight 控制台')
+      }
+
+      const change = key => event => {
+        const value = event.target.value
+        setDraft(current => ({ ...current, [key]: value }))
+      }
+
+      const save = () => {
+        setStatus('saving')
+        setError('')
+        fetch(SETTINGS_PATH, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(draft),
+        }).then(res => res.json().then(body => ({ ok: res.ok, body })), () => ({ ok: false, body: null }))
+          .then(({ ok, body }) => {
+            if (!ok || !body || !body.ok) {
+              setStatus('error')
+              setError((body && body.error) || '保存失败。')
+              return
+            }
+            setDraft(body.settings)
+            setSaved(body)
+            setStatus('saved')
+            window.dispatchEvent(new Event(CHANGED))
+          })
+      }
+
+      if (!draft) {
+        return h('div', { style: cardStyle },
+          h('p', { style: hintStyle, role: 'status' }, status === 'error' ? error : '正在读取设置…'))
+      }
+
+      const note = status === 'error'
+        ? error
+        : status === 'saved'
+          ? `已保存 · 控制台正在重启到 ${saved.url}`
+          : saved && saved.url ? `运行中：${saved.url}` : ''
+
+      return h('div', { style: cardStyle },
+        FIELDS.map(field => h('div', { key: field.key, style: { display: 'grid', gap: 4 } },
+          h('label', { htmlFor: `hcp-${field.key}`, style: titleStyle }, field.label),
+          h('input', {
+            id: `hcp-${field.key}`,
+            value: draft[field.key] || '',
+            onChange: change(field.key),
+            placeholder: field.key === 'version' ? 'latest' : '',
+            inputMode: field.inputMode,
+            disabled: status === 'saving',
+            style: fieldStyle,
+          }),
+          h('p', { style: hintStyle }, field.hint))),
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: 12 } },
+          h('button', {
+            type: 'button',
+            onClick: save,
+            disabled: status === 'saving',
+            style: { ...buttonStyle, opacity: status === 'saving' ? 0.6 : 1 },
+          }, status === 'saving' ? '保存中…' : '保存并重启'),
+          h('span', { role: 'status', style: hintStyle }, note)))
     }
 
     return {
       inject: ['slots'],
       apply(ctx) {
-        // The sidebar owns the button and resolves the panel by this same id.
+        // 侧栏负责按钮，并按同一个 id 找到主区域的面板。
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist',
           id: 'dsh-hindsight-control-plane',
@@ -102,6 +265,11 @@ window.__ModuleLoader__.load({
           name: 'main',
           key: 'dsh-hindsight-control-plane',
         }, Panel))
+        // 插件自己的页面上放配置卡片。
+        ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
+          name: 'plugins.bundle.config',
+          key: 'dsh-hindsight-control-plane',
+        }, ConfigCard))
       },
     }
   },

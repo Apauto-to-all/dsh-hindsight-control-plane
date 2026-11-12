@@ -1,9 +1,9 @@
-# The browser half mounts on the row whose specifier is the package name, so the
-# row name must stay equal to the package name.
+# 浏览器半边挂在 specifier 等于包名的那一行上，所以行名必须与包名一致。
 - insert:
     - id: dsh-hindsight-control-plane
       name: dsh-hindsight-control-plane
       config:
-        # Only the version carries a default. Leave apiUrl, port, and hostname out
-        # and the console runs on its own defaults (no flag is passed at all).
+        # 只有版本带默认值。apiUrl、port、hostname 留空就完全不传参数，
+        # 控制台用自己的默认值（无 api-url / 9999 / 0.0.0.0）。
+        # 插件页上的卡片会把四个键写回这里。
         version: latest
