@@ -1,0 +1,9 @@
+# The browser half mounts on the row whose specifier is the package name, so the
+# row name must stay equal to the package name.
+- insert:
+    - id: dsh-hindsight-control-plane
+      name: dsh-hindsight-control-plane
+      config:
+        # Only the version carries a default. Leave apiUrl, port, and hostname out
+        # and the console runs on its own defaults (no flag is passed at all).
+        version: latest

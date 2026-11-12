@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Hindsight 控制台",
+    "description": "在主区域嵌入 Hindsight 控制台页面，并由插件用 npx 拉起这个控制台。"
+  }
+}
