@@ -1,9 +1,17 @@
 window.__ModuleLoader__.load({
   id: 'dsh-hindsight-control-plane',
   factory(require) {
+    // 浏览器半边：侧栏按钮、主区域面板、插件页上的设置卡片。
+    //
+    // 单文件是刻意的：DSH 一个包只加载一个客户端文件（同机的 dsh-pet、
+    // dsh-notify-me、modsearch 发布出来的也全是打包好的单文件），拆成多文件
+    // 就得引打包器，改一行就要 build。所以用分节代替分包：
+    //   1. 常量与样式   2. 设置字段表   3. 图标与等待态
+    //   4. 面板（含 iframe 保活）   5. 设置卡片   6. 槽位注册
     const React = require('react')
     const h = React.createElement
 
+    // ---- 1. 常量与样式 ----
     const URL_PATH = '/dsh-hindsight-control-plane/url'
     const SETTINGS_PATH = '/dsh-hindsight-control-plane/settings'
     const CHANGED = 'dsh-hindsight-control-plane:changed'
@@ -68,6 +76,7 @@ window.__ModuleLoader__.load({
       cursor: 'pointer',
     }
 
+    // ---- 2. 设置字段表 ----
     // 每项都标出它落到命令行上的位置，避免“这一格到底改了什么”的误解。
     const FIELDS = [
       {
@@ -97,6 +106,7 @@ window.__ModuleLoader__.load({
       },
     ]
 
+    // ---- 3. 图标与等待态 ----
     function Icon(props) {
       const size = typeof props.size === 'number' ? props.size : 20
       return h('svg', {
@@ -121,22 +131,24 @@ window.__ModuleLoader__.load({
         h('div', { style: spinnerStyle }))
     }
 
+    // ---- 4. 面板 ----
     // 面板一卸载，React 就会连 iframe 一起拆掉，控制台的页面被重载回首页。
-    // 所以离开时把它挪进一个不显示的容器挂着：文档一直活着，用户翻到哪、
-    // 滚到哪都还在；回来时再把同一个 iframe 挪回面板，不是重新加载。
+    // 把 iframe 挪到别处挂着也不行：上一版把帧搬来搬去，实测切回来还是重载了。
+    // 所以 iframe 干脆不进 React 树：
+    // 它常驻在 document.body 下的固定层里，面板只留一个空位，按空位的矩形把它
+    // 盖上去，切走时收起这一层。文档从头到尾没被搬动过。
     // ponytail: 只在同一个 DSH 页面生命周期内有效。刷新或重启 DSH，iframe 随
     // 页面销毁，而控制台在另一个源上（:端口不同），读不到它的地址，重开只能回首页。
-    let parked = null
     let kept = null
+    let shell = null
 
-    function parkingLot() {
-      if (parked) return parked
-      parked = document.createElement('div')
-      parked.setAttribute('aria-hidden', 'true')
-      // 保留视口大小的布局、只关掉绘制，帧里的滚动位置和视口才不会被压扁。
-      parked.style.cssText = 'position:fixed;inset:0;visibility:hidden;pointer-events:none;'
-      document.body.appendChild(parked)
-      return parked
+    function shellNode() {
+      if (shell) return shell
+      shell = document.createElement('div')
+      // 自己常驻、从不被搬动；位置和大小每次都按面板空位现算。
+      shell.style.cssText = 'position:fixed;display:none;overflow:hidden;z-index:10'
+      document.body.appendChild(shell)
+      return shell
     }
 
     function makeFrame(url) {
@@ -147,12 +159,32 @@ window.__ModuleLoader__.load({
       return node
     }
 
+    /** 把这一层盖到面板空位上；空位被藏起来（尺寸归零）时，这一层跟着藏。 */
+    function cover(box) {
+      const rect = box.getBoundingClientRect()
+      if (!rect.width || !rect.height) {
+        uncover()
+        return
+      }
+      const node = shellNode()
+      node.style.display = 'block'
+      node.style.left = `${rect.left}px`
+      node.style.top = `${rect.top}px`
+      node.style.width = `${rect.width}px`
+      node.style.height = `${rect.height}px`
+    }
+
+    /** 藏起来而不是 display:none：视口尺寸保住了，帧里的滚动位置才不会归零。 */
+    function uncover() {
+      if (shell) shell.style.left = '-20000px'
+    }
+
     function Panel() {
       // null = 还在问宿主；'' = 宿主答复了但没有地址。
       const [url, setUrl] = React.useState(null)
       const [ready, setReady] = React.useState(false)
       const [nonce, setNonce] = React.useState(0)
-      const host = React.useRef(null)
+      const slot = React.useRef(null)
 
       // 保存设置会重启控制台，面板要重新取一次地址。
       React.useEffect(() => {
@@ -202,17 +234,26 @@ window.__ModuleLoader__.load({
         }
       }, [url, ready])
 
-      // 地址变了（改了设置、控制台换了端口）才换新靶子，否则接回原来那个。
+      // 地址变了（改了设置、控制台换了端口）才换新靶子，否则还是原来那一页。
       React.useEffect(() => {
-        const box = host.current
+        const box = slot.current
         if (!box || !ready || !url) return
         if (!kept || kept.url !== url) {
           if (kept) kept.node.remove()
           kept = { url, node: makeFrame(url) }
         }
-        box.appendChild(kept.node)
+        const node = shellNode()
+        if (kept.node.parentNode !== node) node.appendChild(kept.node)
+        const sync = () => cover(box)
+        sync()
+        // 面板空位的尺寸一动（窗口缩放、侧栏收放）就重新盖一次。
+        const observer = new ResizeObserver(sync)
+        observer.observe(box)
+        window.addEventListener('resize', sync)
         return () => {
-          if (kept) parkingLot().appendChild(kept.node)
+          observer.disconnect()
+          window.removeEventListener('resize', sync)
+          uncover()
         }
       }, [url, ready])
 
@@ -220,10 +261,11 @@ window.__ModuleLoader__.load({
         return h('div', { style: { padding: 16 } }, '宿主没有提供控制台地址（the Host published no address）。')
       }
       return h('div', { style: rowStyle }, ready && url
-        ? h('div', { ref: host, style: hostStyle })
+        ? h('div', { ref: slot, style: hostStyle })
         : h(Waiting))
     }
 
+    // ---- 5. 设置卡片 ----
     function ConfigCard(props) {
       const [draft, setDraft] = React.useState(null)
       const [saved, setSaved] = React.useState(null)
@@ -324,6 +366,7 @@ window.__ModuleLoader__.load({
           h('p', { style: hintStyle }, '没配置的项不会出现在命令里（unset flags are omitted）。')))
     }
 
+    // ---- 6. 槽位注册 ----
     return {
       inject: ['slots'],
       apply(ctx) {
