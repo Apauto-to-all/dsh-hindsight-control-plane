@@ -11,7 +11,7 @@ window.__ModuleLoader__.load({
     const mono = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
 
     const rowStyle = { height: '100%', flex: '1 1 auto', minHeight: 0, display: 'flex' }
-    const frameStyle = { flex: '1 1 auto', minHeight: 0, width: '100%', border: 0, display: 'block' }
+    const hostStyle = { flex: '1 1 auto', minHeight: 0, width: '100%', display: 'flex' }
     const spinnerStyle = {
       width: 32,
       height: 32,
@@ -121,11 +121,38 @@ window.__ModuleLoader__.load({
         h('div', { style: spinnerStyle }))
     }
 
+    // 面板一卸载，React 就会连 iframe 一起拆掉，控制台的页面被重载回首页。
+    // 所以离开时把它挪进一个不显示的容器挂着：文档一直活着，用户翻到哪、
+    // 滚到哪都还在；回来时再把同一个 iframe 挪回面板，不是重新加载。
+    // ponytail: 只在同一个 DSH 页面生命周期内有效。刷新或重启 DSH，iframe 随
+    // 页面销毁，而控制台在另一个源上（:端口不同），读不到它的地址，重开只能回首页。
+    let parked = null
+    let kept = null
+
+    function parkingLot() {
+      if (parked) return parked
+      parked = document.createElement('div')
+      parked.setAttribute('aria-hidden', 'true')
+      // 保留视口大小的布局、只关掉绘制，帧里的滚动位置和视口才不会被压扁。
+      parked.style.cssText = 'position:fixed;inset:0;visibility:hidden;pointer-events:none;'
+      document.body.appendChild(parked)
+      return parked
+    }
+
+    function makeFrame(url) {
+      const node = document.createElement('iframe')
+      node.src = url
+      node.title = 'Hindsight 控制台（Hindsight console）'
+      node.style.cssText = 'width:100%;height:100%;border:0;display:block'
+      return node
+    }
+
     function Panel() {
       // null = 还在问宿主；'' = 宿主答复了但没有地址。
       const [url, setUrl] = React.useState(null)
       const [ready, setReady] = React.useState(false)
       const [nonce, setNonce] = React.useState(0)
+      const host = React.useRef(null)
 
       // 保存设置会重启控制台，面板要重新取一次地址。
       React.useEffect(() => {
@@ -154,6 +181,11 @@ window.__ModuleLoader__.load({
       // 没有服务在听时，no-cors 探测会直接失败。
       React.useEffect(() => {
         if (!url || ready) return
+        // 挂着的那个 iframe 就是这个地址，直接接回来，不必再探一次。
+        if (kept && kept.url === url) {
+          setReady(true)
+          return
+        }
         let live = true
         let timer
         const probe = () => {
@@ -170,11 +202,25 @@ window.__ModuleLoader__.load({
         }
       }, [url, ready])
 
+      // 地址变了（改了设置、控制台换了端口）才换新靶子，否则接回原来那个。
+      React.useEffect(() => {
+        const box = host.current
+        if (!box || !ready || !url) return
+        if (!kept || kept.url !== url) {
+          if (kept) kept.node.remove()
+          kept = { url, node: makeFrame(url) }
+        }
+        box.appendChild(kept.node)
+        return () => {
+          if (kept) parkingLot().appendChild(kept.node)
+        }
+      }, [url, ready])
+
       if (url === '') {
         return h('div', { style: { padding: 16 } }, '宿主没有提供控制台地址（the Host published no address）。')
       }
       return h('div', { style: rowStyle }, ready && url
-        ? h('iframe', { src: url, title: 'Hindsight 控制台（Hindsight console）', style: frameStyle })
+        ? h('div', { ref: host, style: hostStyle })
         : h(Waiting))
     }
 
