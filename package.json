@@ -4,6 +4,10 @@
   "description": "把 Hindsight 记忆控制台嵌进 DSH 主面板：侧栏一键打开整块控制台，npx 拉起、随插件起停。Embed the Hindsight memory console in the DSH main panel.",
   "license": "MIT",
   "author": "Apauto-to-all",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Apauto-to-all/dsh-hindsight-control-plane.git"
+  },
   "icon": "icon.svg",
   "type": "module",
   "publishConfig": {
