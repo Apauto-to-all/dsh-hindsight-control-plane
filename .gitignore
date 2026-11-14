@@ -1,5 +1,4 @@
 node_modules/
+.npmrc
 *.log
-*.tmp
 .DS_Store
-Thumbs.db

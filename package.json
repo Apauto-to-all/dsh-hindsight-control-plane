@@ -1,10 +1,14 @@
 {
   "name": "dsh-hindsight-control-plane",
   "version": "0.1.0",
-  "private": true,
-  "description": "Embeds the Hindsight control plane console in the DSH main panel and starts it with npx.",
+  "description": "把 Hindsight 控制台嵌进 DSH 主面板，并用 npx 拉起它。",
+  "license": "MIT",
+  "author": "Apauto-to-all",
   "icon": "icon.svg",
   "type": "module",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -13,6 +17,7 @@
   },
   "files": [
     "index.js",
+    "lib/*.js",
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",
