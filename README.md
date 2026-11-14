@@ -1,5 +1,7 @@
 # DSH Hindsight 控制台
 
+**简体中文** · [English](README.en.md)
+
 把 Hindsight 的记忆控制台嵌进 DeepSeek Harness 的主面板：侧栏点一下就是整块控制台，不必另开浏览器窗口。控制台由宿主用 `npx` 拉起，随插件起停。
 
 ## 特性
@@ -12,36 +14,20 @@
 
 ## 安装
 
-控制台本体从 npm 下载，需要能访问 npm 的 Node 环境。
-
-**从仓库本地装（当前可用）**
-
 ```bash
-# Linux / macOS
-ln -s "$PWD/dsh-hindsight-control-plane" ~/.dsh/profiles/<profile>/node_modules/dsh-hindsight-control-plane
+dsh plugin --profile web add dsh-hindsight-control-plane
 ```
 
-```bat
-:: Windows（管理员或已开启开发者模式）
-mklink /J %USERPROFILE%\.dsh\profiles\<profile>\node_modules\dsh-hindsight-control-plane <仓库路径>
-```
+**图形界面**：侧栏「插件」页 →「添加插件」→ 填 `dsh-hindsight-control-plane` → 安装 → 重启 DSH。桌面版默认用 `desktop` profile，命令行安装时把 `web` 换成 `desktop` 即可。
 
-然后重启 DSH。`<profile>` 是 profile 目录名，桌面版默认 `desktop`。
-
-**发布到 npm 之后**
-
-```bash
-npx -y @deepseek-ai/dsh plugin --profile <profile> add <包名>
-```
-
-也可以在桌面版的「添加插件」里填包名。
+控制台本体在运行时从 npm 下载，需可访问 npm 的 Node 环境。
 
 ## 设置
 
 插件页（设置 → 插件 → Hindsight）上的卡片，四项都落在启动命令行上：
 
 | 字段 | 落到命令行 | 留空时 |
-|---|---|---|
+| --- | --- | --- |
 | 记忆服务地址 | `--api-url` | 不传，用控制台自己的默认值 |
 | 控制台端口 | `--port` | 不传，控制台默认 `9999` |
 | 绑定地址 | `--hostname` | 不传，控制台默认 `0.0.0.0` |
@@ -81,15 +67,15 @@ DSH 宿主进程
 ## 开发
 
 ```
-index.js        入口：apply、两条路由、找 Loader 行
-lib/settings.js 设置怎么规整、怎么校验、推出什么地址
-lib/console.js  控制台进程怎么拼、什么时候不该起、怎么停
-lib/process.js  端口在听吗、占着的是谁、怎么送走
-lib/http.js     读请求体、回 JSON
-client.js       浏览器半边（单文件，分 6 节）
+lib/index.js     入口：apply、两条路由、找 Loader 行
+lib/settings.js  设置怎么规整、怎么校验、推出什么地址
+lib/console.js   控制台进程怎么拼、什么时候不该起、怎么停
+lib/process.js   端口在听吗、占着的是谁、怎么送走
+lib/http.js      读请求体、回 JSON
+lib/client.js    浏览器半边（单文件，分 6 节）
 ```
 
-没有构建步骤：宿主半边是原生 ESM，浏览器半边由 DSH 直接加载插件目录里的 `client.js`。改客户端不用重装，热加载；改宿主半边要插件重新加载一次。
+没有构建步骤：宿主半边是原生 ESM，浏览器半边由 DSH 直接加载插件目录里的 `lib/client.js`。改客户端不用重装，热加载；改宿主半边要插件重新加载一次。
 
 客户端半边保持**单文件**是有意的——DSH 一个包只加载一个客户端文件，拆成多文件就得引打包器。文件内用分节代替分包，文件头有目录。
 
