@@ -1,6 +1,6 @@
 {
   "name": "dsh-hindsight-control-plane",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "把 Hindsight 记忆控制台嵌进 DSH 主面板：侧栏一键打开整块控制台，npx 拉起、随插件起停。Embed the Hindsight memory console in the DSH main panel.",
   "license": "MIT",
   "author": "Apauto-to-all",
