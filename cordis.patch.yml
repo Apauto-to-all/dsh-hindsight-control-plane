@@ -3,7 +3,7 @@
     - id: dsh-hindsight-control-plane
       name: dsh-hindsight-control-plane
       config:
-        # 只有版本带默认值。apiUrl、port、hostname 留空就完全不传参数，
-        # 控制台用自己的默认值（无 api-url / 9999 / 0.0.0.0）。
-        # 插件页上的卡片会把四个键写回这里。
+        # 只有版本带默认值。apiUrl、port 留空就完全不传参数，控制台用自己的
+        # 默认值（无 api-url / 9999）；hostname 留空按 127.0.0.1 传，不跟随
+        # 控制台的 0.0.0.0。插件页上的卡片会把四个键写回这里。
         version: latest

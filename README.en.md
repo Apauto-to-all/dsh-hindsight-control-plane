@@ -30,10 +30,12 @@ The card on the plugin page (Settings → Plugins → Hindsight) — all four fi
 | --- | --- | --- |
 | Memory service URL | `--api-url` | console's own default |
 | Console port | `--port` | console default `9999` |
-| Bind address | `--hostname` | console default `0.0.0.0` |
+| Bind address | `--hostname` | `127.0.0.1` (this machine only) |
 | Package version | `@<version>` | `latest` |
 
 The actual command is shown under the card; unset options simply don't appear in it. Settings are stored in the profile's `cordis.patch.yml`, not in a plugin-private JSON file.
+
+**The bind address defaults to this machine only.** The console has no authentication and its own default is `0.0.0.0` — anyone on the same network could read your memory data — so when the field is empty the plugin always passes `--hostname 127.0.0.1`. To open it from another device, set the field to `0.0.0.0` and browse to `http://<this machine's LAN IP>:<port>` with the firewall allowing it; the iframe inside the panel always goes through `127.0.0.1`.
 
 ## How it works
 
